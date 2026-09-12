@@ -6,6 +6,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 require("dotenv/config");
+const quest_js_1 = __importDefault(require("./routes/quest.js"));
+const ai_js_1 = __importDefault(require("./routes/ai.js"));
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;
 app.use((0, cors_1.default)());
@@ -21,6 +23,8 @@ app.get("/health", (_req, res) => {
         status: "ok",
     });
 });
+app.use("/api/quests", quest_js_1.default);
+app.use("/api/ai", ai_js_1.default);
 app.listen(PORT, () => {
     console.log(`Life RPG API running on http://localhost:${PORT}`);
 });
