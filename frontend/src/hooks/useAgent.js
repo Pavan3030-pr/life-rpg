@@ -12,7 +12,7 @@ function fallbackQuests(goal, reason) {
     success: true,
     fallback: true,
     xpAwarded: FALLBACK_XP_AWARDED,
-    message: reason || "Quest Master is warming up. Starter quests are ready.",
+    message: reason || "Quest Master starter quests are ready.",
     quests: [
       {
         title: "Scout the Objective",
@@ -44,6 +44,17 @@ function fallbackQuests(goal, reason) {
 
 export function useAgent() {
   async function generateQuests(goal) {
+    const token = localStorage.getItem('sb-dfaycgkamjildcwmnhpg-auth-token');
+    let parsedToken = "";
+    if (token) {
+      try {
+        const parsed = JSON.parse(token);
+        parsedToken = parsed.access_token;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 15000);
 
@@ -52,6 +63,7 @@ export function useAgent() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${parsedToken}`
         },
         signal: controller.signal,
         body: JSON.stringify({ prompt: goal }),
