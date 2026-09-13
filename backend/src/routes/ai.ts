@@ -1,11 +1,13 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { GoogleGenAI } from "@google/generative-ai";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 
 const router = Router();
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5-coder:7b";
-const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://localhost:11434";
-const OLLAMA_GENERATE_URL = `${OLLAMA_HOST}/api/generate`;
 const FALLBACK_XP_AWARDED = 25;
+
+// Initialize Gemini SDK with your Render Environment Key
+const apiKey = process.env.GEMINI_API_KEY || "";
+const ai = new GoogleGenAI({ apiKey });
 
 type GeneratedQuest = {
   title: string;
@@ -23,9 +25,7 @@ function fallbackQuests(goal: string, reason?: string) {
     success: true,
     fallback: true,
     xpAwarded: FALLBACK_XP_AWARDED,
-    message:
-      reason ||
-      "Local Quest Master is warming up. Starter quests are ready.",
+    message: reason || "Quest Master is warming up. Starter quests are ready.",
     quests: [
       {
         title: "Scout the Objective",
@@ -37,8 +37,7 @@ function fallbackQuests(goal: string, reason?: string) {
       },
       {
         title: "First Strike",
-        description:
-          "Complete one visible action that moves the goal forward today.",
+        description: "Complete one visible action that moves the goal forward today.",
         difficulty: "medium",
         attribute: "discipline",
         xpReward: 50,
@@ -46,8 +45,7 @@ function fallbackQuests(goal: string, reason?: string) {
       },
       {
         title: "Proof of Progress",
-        description:
-          "Write a short log of what changed and what the next move is.",
+        description: "Write a short log of what changed and what the next move is.",
         difficulty: "easy",
         attribute: "vitality",
         xpReward: 25,
@@ -62,8 +60,8 @@ function buildPrompt(goal: string) {
 
 Player goal: "${goal.trim().replace(/\s+/g, " ")}"
 
-Generate exactly 3 practical real-world quests.
-Return ONLY valid JSON:
+Generate exactly 3 practical real-world quests based on this goal.
+Return ONLY a valid JSON object matching this schema structure without any markdown fencing:
 {
   "success": true,
   "xpAwarded": 25,
@@ -80,73 +78,47 @@ Return ONLY valid JSON:
 }
 
 Rules:
-- difficulty: easy, medium, hard, or epic.
-- attribute: strength, intellect, discipline, or vitality.
-- xpReward: 25, 50, 75, 100, or 150.
-- goldReward: 5, 10, 15, 20, or 30.
-- Titles under 60 characters.
-- Descriptions under 160 characters.`;
+- difficulty must strictly be: easy, medium, hard, or epic.
+- attribute must strictly be: strength, intellect, discipline, or vitality.
+- xpReward must strictly be: 25, 50, 75, 100, or 150.
+- goldReward must strictly be: 5, 10, 15, 20, or 30.
+- Titles must be under 60 characters.
+- Descriptions must be under 160 characters.`;
 }
 
 function extractJson(text: string) {
-  const fenced = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced?.[1] || text;
+  const cleanText = text.trim();
+  const fenced = cleanText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1] || cleanText;
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
 
   if (start === -1 || end === -1 || end <= start) {
-    throw new Error("Ollama returned no JSON payload.");
+    throw new Error("AI returned no JSON payload.");
   }
 
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
 function sanitizeQuest(quest: Partial<GeneratedQuest>, index: number) {
-  const difficulties: GeneratedQuest["difficulty"][] = [
-    "easy",
-    "medium",
-    "hard",
-    "epic",
-  ];
-  const attributes: GeneratedQuest["attribute"][] = [
-    "strength",
-    "intellect",
-    "discipline",
-    "vitality",
-  ];
-  const difficulty: GeneratedQuest["difficulty"] =
-    quest.difficulty && difficulties.includes(quest.difficulty)
-    ? quest.difficulty
-    : "medium";
-  const attribute: GeneratedQuest["attribute"] =
-    quest.attribute && attributes.includes(quest.attribute)
-    ? quest.attribute
-    : "discipline";
+  const difficulties: GeneratedQuest["difficulty"][] = ["easy", "medium", "hard", "epic"];
+  const attributes: GeneratedQuest["attribute"][] = ["strength", "intellect", "discipline", "vitality"];
+  
+  const difficulty = quest.difficulty && difficulties.includes(quest.difficulty) ? quest.difficulty : "medium";
+  const attribute = quest.attribute && attributes.includes(quest.attribute) ? quest.attribute : "discipline";
 
   return {
-    title:
-      typeof quest.title === "string" && quest.title.trim()
-        ? quest.title.trim().slice(0, 60)
-        : `Quest ${index + 1}`,
-    description:
-      typeof quest.description === "string" && quest.description.trim()
-        ? quest.description.trim().slice(0, 160)
-        : "Take one practical step and record the result.",
+    title: typeof quest.title === "string" && quest.title.trim() ? quest.title.trim().slice(0, 60) : `Quest ${index + 1}`,
+    description: typeof quest.description === "string" && quest.description.trim() ? quest.description.trim().slice(0, 160) : "Take one practical step.",
     difficulty,
     attribute,
-    xpReward: [25, 50, 75, 100, 150].includes(Number(quest.xpReward))
-      ? Number(quest.xpReward)
-      : 50,
-    goldReward: [5, 10, 15, 20, 30].includes(Number(quest.goldReward))
-      ? Number(quest.goldReward)
-      : 10,
+    xpReward: [25, 50, 75, 100, 150].includes(Number(quest.xpReward)) ? Number(quest.xpReward) : 50,
+    goldReward: [5, 10, 15, 20, 30].includes(Number(quest.goldReward)) ? Number(quest.goldReward) : 10,
   } satisfies GeneratedQuest;
 }
 
 function sanitizeAgentResponse(parsed: any, goal: string) {
-  const quests = Array.isArray(parsed?.quests)
-    ? parsed.quests.slice(0, 3).map(sanitizeQuest)
-    : [];
+  const quests = Array.isArray(parsed?.quests) ? parsed.quests.slice(0, 3).map(sanitizeQuest) : [];
 
   if (quests.length !== 3) {
     return fallbackQuests(goal, "Quest Master drafted a safe starter set.");
@@ -155,121 +127,66 @@ function sanitizeAgentResponse(parsed: any, goal: string) {
   return {
     success: true,
     fallback: false,
-    xpAwarded:
-      Number(parsed?.xpAwarded) > 0
-        ? Number(parsed.xpAwarded)
-        : FALLBACK_XP_AWARDED,
+    xpAwarded: Number(parsed?.xpAwarded) > 0 ? Number(parsed.xpAwarded) : FALLBACK_XP_AWARDED,
     quests,
   };
 }
 
-async function requireAuth(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
+async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const header = req.headers.authorization;
-
     if (!header?.startsWith("Bearer ")) {
-      return res.status(401).json({
-        message: "Missing authentication token.",
-      });
+      return res.status(401).json({ message: "Missing authentication token." });
     }
 
     const token = header.replace("Bearer ", "").trim();
-
-    const {
-      data: { user },
-      error,
-    } = await supabaseAdmin.auth.getUser(token);
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
 
     if (error || !user) {
-      return res.status(401).json({
-        message: "Invalid authentication token.",
-      });
+      return res.status(401).json({ message: "Invalid authentication token." });
     }
 
     res.locals.userId = user.id;
     next();
   } catch {
-    return res.status(401).json({
-      message: "Authentication failed.",
-    });
+    return res.status(401).json({ message: "Authentication failed." });
   }
 }
 
-router.post("/generate-quests", requireAuth, async (req, res) => {
+router.post("/generate", requireAuth, async (req, res) => {
   let cleanGoal = "";
 
   try {
-    const { goal } = req.body;
+    const { prompt } = req.body;
+    const goal = prompt;
 
     if (!goal || typeof goal !== "string") {
-      return res.status(400).json({
-        message: "Goal is required.",
-      });
+      return res.status(400).json({ message: "Goal is required." });
     }
 
     cleanGoal = goal.trim();
-
-    if (cleanGoal.length < 3) {
-      return res.status(400).json({
-        message: "Goal is too short.",
-      });
+    if (cleanGoal.length < 3 || cleanGoal.length > 200) {
+      return res.status(400).json({ message: "Goal must be between 3 and 200 characters." });
     }
 
-    if (cleanGoal.length > 200) {
-      return res.status(400).json({
-        message: "Goal must be 200 characters or less.",
-      });
+    if (!apiKey) {
+      return res.json(fallbackQuests(cleanGoal, "Gemini key is missing on backend configuration settings."));
     }
 
-    const response = await fetch(
-      OLLAMA_GENERATE_URL,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        signal: AbortSignal.timeout(9000),
-        body: JSON.stringify({
-          model: OLLAMA_MODEL,
-          prompt: buildPrompt(cleanGoal),
-          stream: false,
-          options: {
-            temperature: 0.7,
-          },
-        }),
-      }
-    );
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: buildPrompt(cleanGoal),
+    });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-
-      console.error("OLLAMA ERROR:", errorText);
-
-      return res.json(
-        fallbackQuests(cleanGoal, "Local model request failed.")
-      );
-    }
-
-    const data = await response.json();
-    const generatedText = data?.response;
-
+    const generatedText = response.text;
     if (!generatedText) {
-      return res.json(
-        fallbackQuests(cleanGoal, "Local model returned no quests.")
-      );
+      return res.json(fallbackQuests(cleanGoal, "AI system returned empty responses."));
     }
 
     return res.json(sanitizeAgentResponse(extractJson(generatedText), cleanGoal));
   } catch (error) {
-    console.error("AI QUEST ERROR:", error);
-
-    return res.json(
-      fallbackQuests(cleanGoal, "Local model lagged, so starter quests are ready.")
-    );
+    console.error("AI GENERATION ERROR DETECTED:", error);
+    return res.json(fallbackQuests(cleanGoal, "AI model encountered traffic issues. Safe starter quests ready."));
   }
 });
 
