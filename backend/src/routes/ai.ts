@@ -66,14 +66,53 @@ Generate exactly 3 practical real-world quests. Return ONLY a valid JSON object 
 }
 
 function extractJson(text: string) {
-  let cleanText = text.trim();
-  if (cleanText.startsWith("```")) {
-    cleanText = cleanText.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const cleanText = text.trim();
+  const fenced = cleanText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  // Safely index the string value from the array layout block to satisfy type-checking requirements
+  const candidate = fenced ? fenced[1] : cleanText;
+  
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) throw new Error("No JSON boundaries found");
+  return JSON.parse(candidate.slice(start, end + 1));
+}
+
+function sanitizeQuest(quest: Partial<GeneratedQuest>, index: number) {
+  const difficulties: GeneratedQuest["difficulty"][] = ["easy", "medium", "hard", "epic"];
+  const attributes: GeneratedQuest["attribute"][] = ["strength", "intellect", "discipline", "vitality"];
+  
+  const difficulty = quest.difficulty && difficulties.includes(quest.difficulty) ? quest.difficulty : "medium";
+  const attribute = quest.attribute && attributes.includes(quest.attribute) ? quest.attribute : "discipline";
+
+  const xpValues = [25, 50, 75, 100, 150];
+  const goldValues = [5, 10, 15, 20, 30];
+
+  const xpReward = quest.xpReward && xpValues.includes(Number(quest.xpReward)) ? Number(quest.xpReward) : 50;
+  const goldReward = quest.goldReward && goldValues.includes(Number(quest.goldReward)) ? Number(quest.goldReward) : 10;
+
+  return {
+    title: typeof quest.title === "string" && quest.title.trim() ? quest.title.trim().slice(0, 60) : `Quest ${index + 1}`,
+    description: typeof quest.description === "string" && quest.description.trim() ? quest.description.trim().slice(0, 160) : "Take one practical step.",
+    difficulty,
+    attribute,
+    xpReward,
+    goldReward,
+  } satisfies GeneratedQuest;
+}
+
+function sanitizeAgentResponse(parsed: any, goal: string) {
+  const quests = Array.isArray(parsed?.quests) ? parsed.quests.slice(0, 3).map(sanitizeQuest) : [];
+
+  if (quests.length !== 3) {
+    return fallbackQuests(goal, "Quest Master drafted a safe starter set.");
   }
-  const start = cleanText.indexOf("{");
-  const end = cleanText.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("No JSON boundaries found");
-  return JSON.parse(cleanText.slice(start, end + 1));
+
+  return {
+    success: true,
+    fallback: false,
+    xpAwarded: Number(parsed?.xpAwarded) > 0 ? Number(parsed.xpAwarded) : FALLBACK_XP_AWARDED,
+    quests,
+  };
 }
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -109,7 +148,7 @@ router.post("/generate", requireAuth, async (req, res) => {
 
     const rawText = response.text || "";
     const data = extractJson(rawText);
-    return res.json({ success: true, quests: data.quests || [] });
+    return res.json(sanitizeAgentResponse(data, targetGoal));
   } catch (error) {
     console.error("GENERATION ERROR:", error);
     return res.json(fallbackQuests(targetGoal, "AI processing loop failed."));
