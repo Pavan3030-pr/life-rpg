@@ -19,12 +19,11 @@ type GeneratedQuest = {
 
 function fallbackQuests(goal: string, reason?: string) {
   const cleanGoal = goal.trim().replace(/\s+/g, " ") || "build momentum";
-
   return {
     success: true,
     fallback: true,
     xpAwarded: FALLBACK_XP_AWARDED,
-    message: reason || "Quest Master is warming up. Starter quests are ready.",
+    message: reason || "Quest Master starter quests are ready.",
     quests: [
       {
         title: "Scout the Objective",
@@ -55,136 +54,62 @@ function fallbackQuests(goal: string, reason?: string) {
 }
 
 function buildPrompt(goal: string) {
-  return `You are the Quest Master for Life RPG, a productivity game.
-
-Player goal: "${goal.trim().replace(/\s+/g, " ")}"
-
-Generate exactly 3 practical real-world quests based on this goal.
-Return ONLY a valid JSON object matching this schema structure without any markdown fencing:
+  return `You are the Quest Master for Life RPG. Player goal: "${goal}"
+Generate exactly 3 practical real-world quests. Return ONLY valid JSON matching this schema:
 {
   "success": true,
   "xpAwarded": 25,
   "quests": [
-    {
-      "title": "short quest title",
-      "description": "clear practical description",
-      "difficulty": "easy",
-      "attribute": "discipline",
-      "xpReward": 50,
-      "goldReward": 10
-    }
+    { "title": "string", "description": "string", "difficulty": "easy", "attribute": "discipline", "xpReward": 50, "goldReward": 10 }
   ]
-}
-
-Rules:
-- difficulty must strictly be: easy, medium, hard, or epic.
-- attribute must strictly be: strength, intellect, discipline, or vitality.
-- xpReward must strictly be: 25, 50, 75, 100, or 150.
-- goldReward must strictly be: 5, 10, 15, 20, or 30.
-- Titles must be under 60 characters.
-- Descriptions must be under 160 characters.`;
+}`;
 }
 
 function extractJson(text: string) {
   const cleanText = text.trim();
-  const fenced = cleanText.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1] : cleanText;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error("AI returned no JSON payload.");
-  }
-
-  return JSON.parse(candidate.slice(start, end + 1));
-}
-
-function sanitizeQuest(quest: Partial<GeneratedQuest>, index: number) {
-  const difficulties: GeneratedQuest["difficulty"][] = ["easy", "medium", "hard", "epic"];
-  const attributes: GeneratedQuest["attribute"][] = ["strength", "intellect", "discipline", "vitality"];
-  
-  const difficulty = quest.difficulty && difficulties.includes(quest.difficulty) ? quest.difficulty : "medium";
-  const attribute = quest.attribute && attributes.includes(quest.attribute) ? quest.attribute : "discipline";
-
-  return {
-    title: typeof quest.title === "string" && quest.title.trim() ? quest.title.trim().slice(0, 60) : `Quest ${index + 1}`,
-    description: typeof quest.description === "string" && quest.description.trim() ? quest.description.trim().slice(0, 160) : "Take one practical step.",
-    difficulty,
-    attribute,
-    xpReward: [25, 50, 75, 100, 150].includes(Number(quest.xpReward)) ? Number(quest.xpReward) : 50,
-    goldReward: [5, 10, 15, 20, 30].includes(Number(quest.goldReward)) ? Number(quest.goldReward) : 10,
-  } satisfies GeneratedQuest;
-}
-
-function sanitizeAgentResponse(parsed: any, goal: string) {
-  const quests = Array.isArray(parsed?.quests) ? parsed.quests.slice(0, 3).map(sanitizeQuest) : [];
-
-  if (quests.length !== 3) {
-    return fallbackQuests(goal, "Quest Master drafted a safe starter set.");
-  }
-
-  return {
-    success: true,
-    fallback: false,
-    xpAwarded: Number(parsed?.xpAwarded) > 0 ? Number(parsed.xpAwarded) : FALLBACK_XP_AWARDED,
-    quests,
-  };
+  const start = cleanText.indexOf("{");
+  const end = cleanText.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("No JSON found");
+  return JSON.parse(cleanText.slice(start, end + 1));
 }
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const header = req.headers.authorization;
-    if (!header?.startsWith("Bearer ")) {
-      return res.status(401).json({ message: "Missing authentication token." });
+    if (!header || !header.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Missing token" });
     }
-
-    const token = header.replace("Bearer ", "").trim();
+    const token = header.split(" ")[1];
+    
+    // Call Supabase API explicitly to verify token validity
     const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
-
+    
     if (error || !user) {
-      return res.status(401).json({ message: "Invalid authentication token." });
+      return res.status(401).json({ message: "Invalid token trace" });
     }
-
+    
     res.locals.userId = user.id;
     next();
-  } catch {
-    return res.status(401).json({ message: "Authentication failed." });
+  } catch (err) {
+    return res.status(401).json({ message: "Auth failed" });
   }
 }
 
 router.post("/generate", requireAuth, async (req, res) => {
-  let cleanGoal = "";
-
   try {
     const { prompt } = req.body;
-
-    if (!prompt || typeof prompt !== "string") {
-      return res.status(400).json({ message: "Goal is required." });
-    }
-
-    cleanGoal = prompt.trim();
-    if (cleanGoal.length < 3 || cleanGoal.length > 200) {
-      return res.status(400).json({ message: "Goal must be between 3 and 200 characters." });
-    }
-
-    if (!apiKey) {
-      return res.json(fallbackQuests(cleanGoal, "Gemini key is missing on backend configuration settings."));
-    }
+    if (!prompt) return res.status(400).json({ message: "Missing prompt" });
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: buildPrompt(cleanGoal),
+      contents: buildPrompt(prompt),
     });
 
-    const generatedText = response.text;
-    if (!generatedText) {
-      return res.json(fallbackQuests(cleanGoal, "AI system returned empty responses."));
-    }
-
-    return res.json(sanitizeAgentResponse(extractJson(generatedText), cleanGoal));
+    const data = extractJson(response.text || "{}");
+    return res.json({ success: true, quests: data.quests || [] });
   } catch (error) {
-    console.error("AI GENERATION ERROR DETECTED:", error);
-    return res.json(fallbackQuests(cleanGoal, "AI model encountered traffic issues. Safe starter quests ready."));
+    console.error(error);
+    return res.json(fallbackQuests(req.body.prompt || "", "AI generation error"));
   }
 });
 
