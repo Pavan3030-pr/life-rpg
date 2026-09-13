@@ -5,7 +5,7 @@ interface Quest {
   title: string;
   description: string;
   difficulty: 'easy' | 'medium' | 'hard' | 'epic';
-  attribute: 'strength' | 'intellect' | "discipline" | 'vitality';
+  attribute: 'strength' | 'intellect' | 'discipline' | 'vitality';
   xpReward: number;
   goldReward: number;
 }
