@@ -1,11 +1,10 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { GoogleGenAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 
 const router = Router();
 const FALLBACK_XP_AWARDED = 25;
 
-// Initialize Gemini SDK with your Render Environment Key
 const apiKey = process.env.GEMINI_API_KEY || "";
 const ai = new GoogleGenAI({ apiKey });
 
@@ -89,7 +88,7 @@ Rules:
 function extractJson(text: string) {
   const cleanText = text.trim();
   const fenced = cleanText.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced?.[1] || cleanText;
+  const candidate = fenced ? fenced[1] : cleanText;
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
 
@@ -158,13 +157,12 @@ router.post("/generate", requireAuth, async (req, res) => {
 
   try {
     const { prompt } = req.body;
-    const goal = prompt;
 
-    if (!goal || typeof goal !== "string") {
+    if (!prompt || typeof prompt !== "string") {
       return res.status(400).json({ message: "Goal is required." });
     }
 
-    cleanGoal = goal.trim();
+    cleanGoal = prompt.trim();
     if (cleanGoal.length < 3 || cleanGoal.length > 200) {
       return res.status(400).json({ message: "Goal must be between 3 and 200 characters." });
     }
