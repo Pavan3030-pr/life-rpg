@@ -1,6 +1,7 @@
 import type { Session } from "@supabase/supabase-js";
 import { useEffect, useState } from "react";
 import { supabase } from "./lib/supabase";
+import SkipLink from "./components/SkipLink";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 
@@ -22,26 +23,19 @@ function App() {
   }, []);
 
   if (!session) {
-    return <Auth />;
+    return (
+      <>
+        <SkipLink />
+        <Auth />
+      </>
+    );
   }
 
-  return <Dashboard />;
-
   return (
-    <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
-      <div className="text-center">
-        <p className="text-sm uppercase tracking-[0.3em] text-amber-400">
-          LIFE RPG
-        </p>
-        <h1 className="mt-4 text-4xl font-bold">Your adventure begins.</h1>
-        <button
-          onClick={() => supabase.auth.signOut()}
-          className="mt-6 rounded-xl bg-zinc-800 px-5 py-3 hover:bg-zinc-700"
-        >
-          Log out
-        </button>
-      </div>
-    </main>
+    <>
+      <SkipLink />
+      <Dashboard />
+    </>
   );
 }
 

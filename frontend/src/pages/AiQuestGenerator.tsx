@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Sparkles, Wand2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { useAgent } from "../hooks/useAgent.js";
 
 type GeneratedQuest = {
   title: string;
@@ -16,6 +17,7 @@ type Props = {
 };
 
 export default function AiQuestGenerator({ onQuestsAdded }: Props) {
+  const agent = useAgent();
   const [goal, setGoal] = useState("");
   const [quests, setQuests] = useState<GeneratedQuest[]>([]);
   const [loading, setLoading] = useState(false);
@@ -30,36 +32,14 @@ export default function AiQuestGenerator({ onQuestsAdded }: Props) {
     setQuests([]);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const result = await agent.generateQuests(goal);
 
-      if (!session) {
-        setMessage("Please log in again.");
-        return;
-      }
-
-      const response = await fetch(
-        "http://localhost:3000/api/ai/generate-quests",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            goal: goal.trim(),
-          }),
-        }
+      setQuests(result.quests);
+      setMessage(
+        result.fallback
+          ? `${result.message} +${result.xpAwarded} XP safety bonus queued.`
+          : `Quest Master forged 3 quests with ${agent.model}.`
       );
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || "Failed to generate quests.");
-      }
-
-      setQuests(result.quests || []);
     } catch (error) {
       setMessage(
         error instanceof Error
@@ -170,7 +150,7 @@ export default function AiQuestGenerator({ onQuestsAdded }: Props) {
       </div>
 
       {message && (
-        <p className="mt-4 rounded-xl bg-white/5 px-4 py-3 text-sm text-zinc-300">
+        <p aria-live="polite" className="mt-4 rounded-xl bg-white/5 px-4 py-3 text-sm text-zinc-300">
           {message}
         </p>
       )}

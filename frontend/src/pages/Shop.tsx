@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { apiUrl } from "../lib/api";
 
 type ShopItem = {
   id: string;
@@ -65,7 +66,7 @@ export default function Shop({ gold, onGoldChange }: ShopProps) {
 
     try {
       const response = await fetch(
-        "http://localhost:3000/api/quests/purchase",
+        apiUrl("/api/quests/purchase"),
         {
           method: "POST",
           headers: {

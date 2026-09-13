@@ -133,7 +133,7 @@ export default function Dashboard() {
   ];
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#07080c] text-white">
+    <main id="main-content" className="min-h-screen overflow-x-hidden bg-[#07080c] text-white">
       {/* Ambient background */}
       <div className="pointer-events-none fixed inset-0 -z-0 overflow-hidden">
         <div className="absolute left-1/2 top-[-300px] h-[650px] w-[900px] -translate-x-1/2 rounded-full bg-amber-500/[0.06] blur-[140px]" />

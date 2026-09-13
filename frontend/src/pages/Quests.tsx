@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, Plus, Swords, Target, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { apiUrl } from "../lib/api";
 
 type Quest = {
   id: string;
@@ -121,7 +122,7 @@ export default function Quests({ onProgressChange }: Props) {
       }
 
       const response = await fetch(
-        "http://localhost:3000/api/quests/complete",
+        apiUrl("/api/quests/complete"),
         {
           method: "POST",
           headers: {

@@ -2,6 +2,166 @@ import { Router, Request, Response, NextFunction } from "express";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 
 const router = Router();
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5-coder:7b";
+const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://localhost:11434";
+const OLLAMA_GENERATE_URL = `${OLLAMA_HOST}/api/generate`;
+const FALLBACK_XP_AWARDED = 25;
+
+type GeneratedQuest = {
+  title: string;
+  description: string;
+  difficulty: "easy" | "medium" | "hard" | "epic";
+  attribute: "strength" | "intellect" | "discipline" | "vitality";
+  xpReward: number;
+  goldReward: number;
+};
+
+function fallbackQuests(goal: string, reason?: string) {
+  const cleanGoal = goal.trim().replace(/\s+/g, " ") || "build momentum";
+
+  return {
+    success: true,
+    fallback: true,
+    xpAwarded: FALLBACK_XP_AWARDED,
+    message:
+      reason ||
+      "Local Quest Master is warming up. Starter quests are ready.",
+    quests: [
+      {
+        title: "Scout the Objective",
+        description: `Spend 15 focused minutes breaking down: ${cleanGoal}.`,
+        difficulty: "easy",
+        attribute: "intellect",
+        xpReward: 25,
+        goldReward: 5,
+      },
+      {
+        title: "First Strike",
+        description:
+          "Complete one visible action that moves the goal forward today.",
+        difficulty: "medium",
+        attribute: "discipline",
+        xpReward: 50,
+        goldReward: 10,
+      },
+      {
+        title: "Proof of Progress",
+        description:
+          "Write a short log of what changed and what the next move is.",
+        difficulty: "easy",
+        attribute: "vitality",
+        xpReward: 25,
+        goldReward: 5,
+      },
+    ] satisfies GeneratedQuest[],
+  };
+}
+
+function buildPrompt(goal: string) {
+  return `You are the Quest Master for Life RPG, a productivity game.
+
+Player goal: "${goal.trim().replace(/\s+/g, " ")}"
+
+Generate exactly 3 practical real-world quests.
+Return ONLY valid JSON:
+{
+  "success": true,
+  "xpAwarded": 25,
+  "quests": [
+    {
+      "title": "short quest title",
+      "description": "clear practical description",
+      "difficulty": "easy",
+      "attribute": "discipline",
+      "xpReward": 50,
+      "goldReward": 10
+    }
+  ]
+}
+
+Rules:
+- difficulty: easy, medium, hard, or epic.
+- attribute: strength, intellect, discipline, or vitality.
+- xpReward: 25, 50, 75, 100, or 150.
+- goldReward: 5, 10, 15, 20, or 30.
+- Titles under 60 characters.
+- Descriptions under 160 characters.`;
+}
+
+function extractJson(text: string) {
+  const fenced = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1] || text;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error("Ollama returned no JSON payload.");
+  }
+
+  return JSON.parse(candidate.slice(start, end + 1));
+}
+
+function sanitizeQuest(quest: Partial<GeneratedQuest>, index: number) {
+  const difficulties: GeneratedQuest["difficulty"][] = [
+    "easy",
+    "medium",
+    "hard",
+    "epic",
+  ];
+  const attributes: GeneratedQuest["attribute"][] = [
+    "strength",
+    "intellect",
+    "discipline",
+    "vitality",
+  ];
+  const difficulty: GeneratedQuest["difficulty"] =
+    quest.difficulty && difficulties.includes(quest.difficulty)
+    ? quest.difficulty
+    : "medium";
+  const attribute: GeneratedQuest["attribute"] =
+    quest.attribute && attributes.includes(quest.attribute)
+    ? quest.attribute
+    : "discipline";
+
+  return {
+    title:
+      typeof quest.title === "string" && quest.title.trim()
+        ? quest.title.trim().slice(0, 60)
+        : `Quest ${index + 1}`,
+    description:
+      typeof quest.description === "string" && quest.description.trim()
+        ? quest.description.trim().slice(0, 160)
+        : "Take one practical step and record the result.",
+    difficulty,
+    attribute,
+    xpReward: [25, 50, 75, 100, 150].includes(Number(quest.xpReward))
+      ? Number(quest.xpReward)
+      : 50,
+    goldReward: [5, 10, 15, 20, 30].includes(Number(quest.goldReward))
+      ? Number(quest.goldReward)
+      : 10,
+  } satisfies GeneratedQuest;
+}
+
+function sanitizeAgentResponse(parsed: any, goal: string) {
+  const quests = Array.isArray(parsed?.quests)
+    ? parsed.quests.slice(0, 3).map(sanitizeQuest)
+    : [];
+
+  if (quests.length !== 3) {
+    return fallbackQuests(goal, "Quest Master drafted a safe starter set.");
+  }
+
+  return {
+    success: true,
+    fallback: false,
+    xpAwarded:
+      Number(parsed?.xpAwarded) > 0
+        ? Number(parsed.xpAwarded)
+        : FALLBACK_XP_AWARDED,
+    quests,
+  };
+}
 
 async function requireAuth(
   req: Request,
@@ -40,6 +200,8 @@ async function requireAuth(
 }
 
 router.post("/generate-quests", requireAuth, async (req, res) => {
+  let cleanGoal = "";
+
   try {
     const { goal } = req.body;
 
@@ -49,7 +211,7 @@ router.post("/generate-quests", requireAuth, async (req, res) => {
       });
     }
 
-    const cleanGoal = goal.trim();
+    cleanGoal = goal.trim();
 
     if (cleanGoal.length < 3) {
       return res.status(400).json({
@@ -63,69 +225,20 @@ router.post("/generate-quests", requireAuth, async (req, res) => {
       });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      return res.status(500).json({
-        message: "Gemini API key is not configured.",
-      });
-    }
-
-    const prompt = `
-You are the quest master for a Life RPG productivity game.
-
-The player wants to achieve:
-"${cleanGoal}"
-
-Generate exactly 3 practical real-world quests that help the player achieve this goal.
-
-Return ONLY valid JSON in this exact format:
-{
-  "quests": [
-    {
-      "title": "short quest title",
-      "description": "clear practical description",
-      "difficulty": "easy",
-      "attribute": "discipline",
-      "xpReward": 50,
-      "goldReward": 10
-    }
-  ]
-}
-
-Rules:
-- Exactly 3 quests.
-- difficulty must be one of: easy, medium, hard, epic.
-- attribute must be one of: strength, intellect, discipline, vitality.
-- xpReward must be one of: 25, 50, 75, 100, 150.
-- goldReward must be one of: 5, 10, 15, 20, 30.
-- Quests must be realistic and actionable.
-- Do not invent impossible tasks.
-- Keep titles under 60 characters.
-- Keep descriptions under 160 characters.
-`;
-
     const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+      OLLAMA_GENERATE_URL,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
         },
+        signal: AbortSignal.timeout(9000),
         body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
-            },
-          ],
-          generationConfig: {
+          model: OLLAMA_MODEL,
+          prompt: buildPrompt(cleanGoal),
+          stream: false,
+          options: {
             temperature: 0.7,
-            responseMimeType: "application/json",
           },
         }),
       }
@@ -134,50 +247,29 @@ Rules:
     if (!response.ok) {
       const errorText = await response.text();
 
-      console.error("GEMINI ERROR:", errorText);
+      console.error("OLLAMA ERROR:", errorText);
 
-      return res.status(502).json({
-        message: "AI quest generation failed.",
-      });
+      return res.json(
+        fallbackQuests(cleanGoal, "Local model request failed.")
+      );
     }
 
     const data = await response.json();
-
-    const generatedText =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const generatedText = data?.response;
 
     if (!generatedText) {
-      return res.status(502).json({
-        message: "AI returned no quests.",
-      });
+      return res.json(
+        fallbackQuests(cleanGoal, "Local model returned no quests.")
+      );
     }
 
-    let parsed;
-
-    try {
-      parsed = JSON.parse(generatedText);
-    } catch {
-      return res.status(502).json({
-        message: "AI returned invalid quest data.",
-      });
-    }
-
-    if (!Array.isArray(parsed.quests) || parsed.quests.length !== 3) {
-      return res.status(502).json({
-        message: "AI returned an invalid number of quests.",
-      });
-    }
-
-    return res.json({
-      success: true,
-      quests: parsed.quests,
-    });
+    return res.json(sanitizeAgentResponse(extractJson(generatedText), cleanGoal));
   } catch (error) {
     console.error("AI QUEST ERROR:", error);
 
-    return res.status(500).json({
-      message: "Failed to generate quests.",
-    });
+    return res.json(
+      fallbackQuests(cleanGoal, "Local model lagged, so starter quests are ready.")
+    );
   }
 });
 
