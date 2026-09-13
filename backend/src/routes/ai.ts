@@ -62,15 +62,19 @@ Generate exactly 3 practical real-world quests. Return ONLY valid JSON matching 
   "quests": [
     { "title": "string", "description": "string", "difficulty": "easy", "attribute": "discipline", "xpReward": 50, "goldReward": 10 }
   ]
-}`;
+}
+Do not wrap your output in markdown formatting or backticks. Return the raw string block only.`;
 }
 
 function extractJson(text: string) {
   const cleanText = text.trim();
-  const start = cleanText.indexOf("{");
-  const end = cleanText.lastIndexOf("}");
+  // Robust cleaning to strip any potential markdown fence wrappers like ```json
+  const cleaned = cleanText.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
+  
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1) throw new Error("No JSON found");
-  return JSON.parse(cleanText.slice(start, end + 1));
+  return JSON.parse(cleaned.slice(start, end + 1));
 }
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -98,16 +102,21 @@ router.post("/generate", requireAuth, async (req, res) => {
     const { prompt } = req.body;
     if (!prompt) return res.status(400).json({ message: "Missing prompt" });
 
+    if (!apiKey) {
+      return res.json(fallbackQuests(prompt, "Gemini key missing on system configuration settings."));
+    }
+
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: buildPrompt(prompt),
     });
 
-    const data = extractJson(response.text || "{}");
+    const rawText = response.text || "";
+    const data = extractJson(rawText);
     return res.json({ success: true, quests: data.quests || [] });
   } catch (error) {
-    console.error(error);
-    return res.json(fallbackQuests(req.body.prompt || "", "AI generation error"));
+    console.error("AI ROUTE PARSING ERROR:", error);
+    return res.json(fallbackQuests(req.body.prompt || "", "AI generation error parsing json"));
   }
 });
 
