@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type InventoryItem = {
@@ -15,11 +15,7 @@ export default function Inventory() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadInventory();
-  }, []);
-
-  async function loadInventory() {
+  const loadInventory = useCallback(async () => {
     const { data, error } = await supabase
       .from("inventory")
       .select(
@@ -35,7 +31,11 @@ export default function Inventory() {
     }
 
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => {
+    void loadInventory();
+  }, [loadInventory]);
 
   if (loading) {
     return (

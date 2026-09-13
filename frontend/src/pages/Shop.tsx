@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { apiUrl } from "../lib/api";
 
@@ -23,11 +23,7 @@ export default function Shop({ gold, onGoldChange }: ShopProps) {
   const [message, setMessage] = useState("");
   const [purchasedItem, setPurchasedItem] = useState<ShopItem | null>(null);
 
-  useEffect(() => {
-    loadShop();
-  }, []);
-
-  async function loadShop() {
+  const loadShop = useCallback(async () => {
     const { data, error } = await supabase
       .from("shop_items")
       .select("id, item_key, name, description, icon, price")
@@ -42,7 +38,11 @@ export default function Shop({ gold, onGoldChange }: ShopProps) {
 
     setItems(data ?? []);
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => {
+    void loadShop();
+  }, [loadShop]);
 
   async function buyItem(item: ShopItem) {
     if (buying) return;

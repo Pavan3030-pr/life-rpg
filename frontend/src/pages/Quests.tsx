@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Check, Plus, Swords, Target, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { apiUrl } from "../lib/api";
@@ -29,7 +29,7 @@ export default function Quests({ onProgressChange }: Props) {
   const [levelUp, setLevelUp] = useState<number | null>(null);
   const [error, setError] = useState("");
 
-  async function loadQuests() {
+  const loadQuests = useCallback(async () => {
     try {
       const {
         data: { user },
@@ -58,11 +58,11 @@ export default function Quests({ onProgressChange }: Props) {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    loadQuests();
-  }, []);
+    void loadQuests();
+  }, [loadQuests]);
 
   async function addQuest() {
     if (!title.trim() || adding) return;
