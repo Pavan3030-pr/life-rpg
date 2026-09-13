@@ -54,26 +54,37 @@ function fallbackQuests(goal: string, reason?: string) {
 }
 
 function buildPrompt(goal: string) {
-  return `You are the Quest Master for Life RPG. Player goal: "${goal}"
-Generate exactly 3 practical real-world quests. Return ONLY a valid JSON object matching this schema structure without markdown fencing:
+  return `You are the Quest Master for Life RPG, a productivity game.
+Player goal: "${goal.trim().replace(/\s+/g, " ")}"
+
+Generate exactly 3 practical real-world quests based on this goal.
+You MUST respond with a valid JSON object matching this schema. Do not add any text before or after the JSON:
 {
   "success": true,
   "xpAwarded": 25,
   "quests": [
-    { "title": "string", "description": "string", "difficulty": "easy", "attribute": "discipline", "xpReward": 50, "goldReward": 10 }
+    {
+      "title": "short quest title",
+      "description": "clear practical description",
+      "difficulty": "easy",
+      "attribute": "discipline",
+      "xpReward": 50,
+      "goldReward": 10
+    }
   ]
 }`;
 }
 
 function extractJson(text: string) {
   const cleanText = text.trim();
-  const fenced = cleanText.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1] : cleanText;
+  const start = cleanText.indexOf("{");
+  const end = cleanText.lastIndexOf("}");
   
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) throw new Error("No JSON boundaries found");
-  return JSON.parse(candidate.slice(start, end + 1));
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error("AI returned no JSON object boundaries.");
+  }
+  
+  return JSON.parse(cleanText.slice(start, end + 1));
 }
 
 function sanitizeQuest(quest: Partial<GeneratedQuest>, index: number) {
@@ -83,8 +94,8 @@ function sanitizeQuest(quest: Partial<GeneratedQuest>, index: number) {
   const difficulty = quest.difficulty && difficulties.includes(quest.difficulty) ? quest.difficulty : "medium";
   const attribute = quest.attribute && attributes.includes(quest.attribute) ? quest.attribute : "discipline";
 
-  const xpValues =;
-  const goldValues =;
+  const xpValues = [25, 50, 75, 100, 150];
+  const goldValues = [5, 10, 15, 20, 30];
 
   const xpReward = quest.xpReward && xpValues.includes(Number(quest.xpReward)) ? Number(quest.xpReward) : 50;
   const goldReward = quest.goldReward && goldValues.includes(Number(quest.goldReward)) ? Number(quest.goldReward) : 10;
