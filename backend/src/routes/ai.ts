@@ -55,26 +55,29 @@ function fallbackQuests(goal: string, reason?: string) {
 
 function buildPrompt(goal: string) {
   return `You are the Quest Master for Life RPG. Player goal: "${goal}"
-Generate exactly 3 practical real-world quests. Return ONLY valid JSON matching this schema:
+Generate exactly 3 practical real-world quests. Return ONLY a valid JSON object matching this schema structure:
 {
   "success": true,
   "xpAwarded": 25,
   "quests": [
     { "title": "string", "description": "string", "difficulty": "easy", "attribute": "discipline", "xpReward": 50, "goldReward": 10 }
   ]
-}
-Do not wrap your output in markdown formatting or backticks. Return the raw string block only.`;
+}`;
 }
 
 function extractJson(text: string) {
-  const cleanText = text.trim();
-  // Robust cleaning to strip any potential markdown fence wrappers like ```json
-  const cleaned = cleanText.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
+  let cleanText = text.trim();
   
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("No JSON found");
-  return JSON.parse(cleaned.slice(start, end + 1));
+  // Strip markdown formatting fences if the AI includes them
+  if (cleanText.startsWith("```")) {
+    cleanText = cleanText.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  }
+  
+  const start = cleanText.indexOf("{");
+  const end = cleanText.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("No JSON object boundaries found");
+  
+  return JSON.parse(cleanText.slice(start, end + 1));
 }
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
