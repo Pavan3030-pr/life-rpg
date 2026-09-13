@@ -169,7 +169,6 @@ export default function AiQuestGenerator() {
             </div>
           )}
         </section>
-
       </main>
     </div>
   );

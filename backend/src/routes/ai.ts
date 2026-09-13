@@ -68,7 +68,6 @@ Generate exactly 3 practical real-world quests. Return ONLY a valid JSON object 
 function extractJson(text: string) {
   const cleanText = text.trim();
   const fenced = cleanText.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  // Safely index the string value from the array layout block to satisfy type-checking requirements
   const candidate = fenced ? fenced[1] : cleanText;
   
   const start = candidate.indexOf("{");
@@ -84,8 +83,8 @@ function sanitizeQuest(quest: Partial<GeneratedQuest>, index: number) {
   const difficulty = quest.difficulty && difficulties.includes(quest.difficulty) ? quest.difficulty : "medium";
   const attribute = quest.attribute && attributes.includes(quest.attribute) ? quest.attribute : "discipline";
 
-  const xpValues = [25, 50, 75, 100, 150];
-  const goldValues = [5, 10, 15, 20, 30];
+  const xpValues =;
+  const goldValues =;
 
   const xpReward = quest.xpReward && xpValues.includes(Number(quest.xpReward)) ? Number(quest.xpReward) : 50;
   const goldReward = quest.goldReward && goldValues.includes(Number(quest.goldReward)) ? Number(quest.goldReward) : 10;
