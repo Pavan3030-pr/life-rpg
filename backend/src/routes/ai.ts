@@ -67,10 +67,12 @@ Generate exactly 3 practical real-world quests. Return ONLY valid JSON matching 
 
 function extractJson(text: string) {
   const cleanText = text.trim();
-  const start = cleanText.indexOf("{");
-  const end = cleanText.lastIndexOf("}");
+  const fenced = cleanText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1] : cleanText;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
   if (start === -1 || end === -1) throw new Error("No JSON found");
-  return JSON.parse(cleanText.slice(start, end + 1));
+  return JSON.parse(candidate.slice(start, end + 1));
 }
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -79,11 +81,12 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
     if (!header || !header.startsWith("Bearer ")) {
       return res.status(401).json({ message: "Missing token" });
     }
-    const token = header.split(" ")[1];
     
-    // Call Supabase API explicitly to verify token validity
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+    // Explicitly target the index token string value instead of passing the array object reference
+    const parts = header.split(" ");
+    const tokenString = parts[1];
     
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(tokenString);
     if (error || !user) {
       return res.status(401).json({ message: "Invalid token trace" });
     }
@@ -99,6 +102,10 @@ router.post("/generate", requireAuth, async (req, res) => {
   try {
     const { prompt } = req.body;
     if (!prompt) return res.status(400).json({ message: "Missing prompt" });
+
+    if (!apiKey) {
+      return res.json(fallbackQuests(prompt, "Gemini key missing on system initialization configurations."));
+    }
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
